@@ -4,11 +4,25 @@
 
 ---
 
+## 涉及技术栈
+
+- node
+- express
+- mongodb
+- redis
+- axios
+- bluebird
+
 根据微信小程序提供的登录时序 实现以下：
 
 1. 小程序通过wx.login()获取到code并发送POST请求 **jscode2session** ( **appid secret code** ) 到服务器
 2. 服务器接收到相应参数后发送GET请求( **appid secret code** )到微信服务器 返回 **openid session_key**
-3. 服务器将返回内容传回小程序端
+3. 服务器收到返回内容后生成一个随机字符串 **3rdsession** 并以 **3rdsession** 为key 返回内容为value 存入redis 并返回给客户端 **3rdsession**
+4. 客户端将收到的 **3rdsession** 存入storage 且之后的每次请求都将 **3rdsession** 作为用户的唯一标识 作为参数传到服务器
+
+## 存在问题
+
+- 服务器生成的3rdsession可能与小程序自身的登录态有冲突 因为暂时还没搞清楚小程序的登录态机制
 
 > ### 登录时序图
 > ![image](https://mp.weixin.qq.com/debug/wxadoc/dev/image/login.png?t=2017127)
@@ -41,7 +55,7 @@
 
 - 客户端每次提交create请求 则会在数据库创建一个对象 用于存储文章的标题内容等等
 
-- ###### 传入参数 openId
+- ###### 传入参数 session
 
 ##### 4. /sub
 
@@ -49,7 +63,7 @@
 
 - 每次提交sub请求 则会将用户传入的数据存入数据库
 
-- ###### 传入参数 openId worksId works
+- ###### 传入参数 session workId work
 
 ##### 5. /download
 
@@ -57,23 +71,23 @@
 
 - 编辑文章时需要下载图片/录音等文件
 
-- ###### 传入参数 openId worksId filepath (header)
+- ###### 传入参数 session workId filepath (header)
 
 ##### 6. /getworks
 
 - method: POST
 
-- 查询指定openId的works内容
+- 查询指定session的work内容
 
-- ###### 传入参数 openId worksId
+- ###### 传入参数 session workId
 
-##### 7. /getuserbyopenid
+##### 7. /getuserbysession
 
 - method: POST
 
-- 查询指定openId的内容
+- 查询指定session的内容
 
-- ###### 传入参数 openId
+- ###### 传入参数 session
 
 7./getuserbynickname
 

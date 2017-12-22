@@ -1,6 +1,6 @@
 const HTTPBaseError = require('./http_base_error');
 
-const ERROR_CODE = 5000000;
+const ERROR_CODE = 5000001;
 
 class InternalServerError extends HTTPBaseError {
   constructor(msg) {

@@ -1,6 +1,6 @@
 const HTTPBaseError = require('./http_base_error');
 
-const ERRPR_CODE = 4000000;
+const ERRPR_CODE = 4000001;
 
 class HTTPReqParamError extends HTTPBaseError {
   constructor(paramName, desc, msg) {

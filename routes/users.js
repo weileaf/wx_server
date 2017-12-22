@@ -5,11 +5,15 @@ const multer = require('multer');
 const upload = multer({ dest: './mongodb/db' });
 
 const jscode2session = require('../services/jscode2session/jscode2session');
+const generating3rdsession = require('../services/3rd_session/generating_3rd_session');
+const redis3rdsession = require('../services/redis/3rd_session');
 const getDecryptions = require('../services/decrypt/decrypt_service');
 const mongo = require('../services/mongoose/mongodb_user');
 const files = require('../services/file_operation/file_operation');
 
 const HTTPParamError = require('../errors/http_request_param_error');
+const HTTPReqWXServerError = require('../errors/requset_wxserver_error');
+const HTTP3rdsessionError = require('../errors/3rdsession_error');
 const logger = require('../utils/loggers/logger');
 
 router.get('/', (req, res) => {
@@ -25,7 +29,14 @@ router.post('/jscode2session', (req, res, next) => {
     const existingParam = req.body.appid && req.body.secret && req.body.code;
     if (existingParam) {
       const data = await jscode2session.request(req.body.appid, req.body.secret, req.body.code);
-      return data;
+      if (data) {
+        const sessionid = await generating3rdsession.generating3rdsession();
+        const json_data = JSON.parse(data);
+        await redis3rdsession.redisSet(sessionid, data, json_data['expires_in']);
+        return sessionid;
+      } else {
+        throw new HTTPReqWXServerError('请求微信服务器时发生错误');
+      }
     } else {
       throw new HTTPParamError('appid,secret,code', 'jscode2session请求错误 传入参数错误', 'jscode2session wrong');
     }
@@ -41,26 +52,28 @@ router.post('/jscode2session', (req, res, next) => {
 /**
  * 下方所有请求的前提条件 正确解密信息后才会从数据库添加用户信息
  * 对收到的签名加密数据进行解密 返回用户明文信息
- * 传入参数 appID sessionKey encryptedData iv
+ * 传入参数 appID session encryptedData iv
  */
 router.post('/decrypt', (req, res, next) => {
   (async () => {
-    const existingParam = req.body.appId && req.body.sessionKey && req.body.encryptedData && req.body.iv;
+    const existingParam = req.body.appId && req.body.session && req.body.encryptedData && req.body.iv;
     if (existingParam) {
       // 得到appID sessionKey encryptedData iv，然后调用解密并返回解密的信息
+      const sessionKey = await redis3rdsession.redisGet(req.body.session).catch((e) => {
+        throw new HTTP3rdsessionError('3rdsession', '3rdsession错误或已过期', e);
+      });
       let after = await getDecryptions.getDecryption(
         req.body.appId,
-        req.body.sessionKey,
+        sessionKey['session_key'],
         req.body.encryptedData,
         req.body.iv,
       );
-      after.works = [];
       // 判断是否已经存在用户 不存在则将解密后的用户信息after存入数据库
-      const user = await mongo.getUserByOpenid(after.openId);
+      const user = await mongo.getUserByOpenid(sessionKey['openid']);
       if (user) return user;
       return mongo.addNewUser(after);
     } else {
-      throw new HTTPParamError('appID,sessionKey,encryptedData,iv', '解密请求错误 传入参数错误', 'decrypt wrong');
+      throw new HTTPParamError('appID,session,encryptedData,iv', '解密请求错误 传入参数错误', 'decrypt wrong');
     }
   })()
     .then((r) => {
@@ -73,24 +86,29 @@ router.post('/decrypt', (req, res, next) => {
 
 /**
  * 客户端每次提交create请求 则会在数据库创建一个对象 用于存储文章的标题内容等等
- * 传入参数 openId
+ * 传入参数 session
  */
 router.post('/create', (req, res, next) => {
   (async () => {
-    // 根据openId查询workId 如果已经存在则workId++ 不存在则从1开始
-    if (req.body.openId) {
-      const user = await mongo.getUserByOpenid(req.body.openId);
-      let worksId = user.works.length;
-      if (user.works.length) {
-        worksId = user.works.length++;
+    // 根据session查询workId 如果已经存在则workId++ 不存在则从1开始
+    if (req.body.session) {
+      const sessionKey = await redis3rdsession.redisGet(req.body.session).catch((e) => {
+        throw new HTTP3rdsessionError('3rdsession', '3rdsession错误或已过期', e);
+      });
+      const user = await mongo.getUserByOpenid(sessionKey['openid']);
+      let workId = user.work.length;
+      if (user.work.length) {
+        workId = user.work.length++;
         const datas = {
           title: '',
           main: '',
           fontsize: 14,
           color: '#353535',
-          worksId: worksId,
+          image: [],
+          tape: [],
+          workId: workId,
         };
-        const created = await mongo.getUserByOpenidAndCreate(req.body.openId, datas);
+        const created = await mongo.getUserByOpenidAndCreate(sessionKey['openid'], datas);
         return created;
       } else {
         const datas = {
@@ -98,13 +116,15 @@ router.post('/create', (req, res, next) => {
           main: '',
           fontsize: 14,
           color: '#353535',
-          worksId: 0,
+          image: [],
+          tape: [],
+          workId: 0,
         };
-        const created = await mongo.getUserByOpenidAndCreate(req.body.openId, datas);
+        const created = await mongo.getUserByOpenidAndCreate(sessionKey['openid'], datas);
         return created;
       }
     } else {
-      throw new HTTPParamError('openId', '创建请求错误 传入参数错误', 'create wrong');
+      throw new HTTPParamError('session', '创建请求错误 传入参数错误', 'create wrong');
     }
   })()
     .then((r) => {
@@ -117,32 +137,38 @@ router.post('/create', (req, res, next) => {
 
 /**
  * 每次提交sub请求 则会将用户传入的数据存入数据库
- * 传入参数 openId worksId works(非必填)
+ * 传入参数 session workId work(非必填)
  */
 router.post('/sub', upload.single('file'), (req, res, next) => {
   (async () => {
-    let existingParam = req.body.openId && req.body.worksId;
-    if (req.body.worksId == 0 && req.body.openId) {
+    let existingParam = req.body.session && req.body.workId;
+    if (req.body.workId == 0 && req.body.session) {
       existingParam = true;
     }
     if (existingParam) {
+      const sessionKey = await redis3rdsession.redisGet(req.body.session).catch((e) => {
+        throw new HTTP3rdsessionError('3rdsession', '3rdsession错误或已过期', e);
+      });
       // 如果有上传的文件则整理存储文件 没有则正常存储文字
       if (req.file) {
         // 上传文件需要客户端在header内加入键firstanddelete 如果此键值为1 则表明为第一次上传 将删除对应目录下所有文件 防止重复 值为1时则正常上传
         if (req.headers.firstanddelete === '1') {
-          const filesUrl = `mongodb/db/${req.body.openId}/${req.body.worksId}`;
+          const filesUrl = `mongodb/db/${sessionKey['openid']}/${req.body.workId}`;
           await files.deleteall(filesUrl);
-          await mongo.getUserByOpenidAndUpdate(req.body.openId, req.body.worksId, req.body.works, 'image', true);
-          await mongo.getUserByOpenidAndUpdate(req.body.openId, req.body.worksId, req.body.works, 'tape', true);
+          await mongo.getUserByOpenidAndUpdate(sessionKey['openid'], req.body.workId, req.body.work, 'image', true);
+          await mongo.getUserByOpenidAndUpdate(sessionKey['openid'], req.body.workId, req.body.work, 'tape', true);
         }
-        const file = await mongo.getFiles(req.body.openId, req.body.worksId, req.file.originalname, req.file.path, req.file.mimetype);
+        const file = await mongo.getFiles(sessionKey['openid'], req.body.workId, req.file.originalname, req.file.path, req.file.mimetype);
         return file;
       } else {
-        const user = await mongo.getUserByOpenidAndUpdate(req.body.openId, req.body.worksId, req.body.works);
+        // 只有文字 没有文件
+        const filesUrl = `mongodb/db/${sessionKey['openid']}/${req.body.workId}`;
+        await files.deleteall(filesUrl);
+        const user = await mongo.getUserByOpenidAndUpdate(sessionKey['openid'], req.body.workId, req.body.work);
         return user;
       }
     } else {
-      throw new HTTPParamError('openId,worksId,works', '提交请求错误 传入参数错误', 'sub wrong');
+      throw new HTTPParamError('session,workId,work', '提交请求错误 传入参数错误', 'sub wrong');
     }
   })()
     .then((r) => {
@@ -155,20 +181,20 @@ router.post('/sub', upload.single('file'), (req, res, next) => {
 
 /**
  * 编辑文章时需要下载图片/录音等文件
- * 传入参数 openId worksId filepath (header)
+ * 传入参数 session workId filepath (小程序限制 在header中传参)
  */
 router.get('/download', (req, res, next) => {
   (async () => {
-    let existingParam = req.headers.openid && req.headers.worksid && req.headers.filepath;
-    if (req.body.worksId == 0 && req.body.openId) {
-      existingParam = true;
-    }
+    let existingParam = req.headers.session && req.headers.workid && req.headers.filepath;
     if (existingParam) {
-      // 先根据openId worksId查到文件的数组 如果有相应数据则返回文件
-      const user = await mongo.getUserByOpenidAndWorksid(req.headers.openid, req.headers.worksid);
+      const sessionKey = await redis3rdsession.redisGet(req.headers.session).catch((e) => {
+        throw new HTTP3rdsessionError('3rdsession', '3rdsession错误或已过期', e);
+      });
+      // 先根据session workId查到文件的数组 如果有相应数据则返回文件
+      const user = await mongo.getUserByOpenidAndWorkid(sessionKey['openid'], req.headers.workid);
       return user;
     } else {
-      throw new HTTPParamError('openId,worksId,filepath', '下载请求错误 传入参数错误', 'download wrong');
+      throw new HTTPParamError('session,workId,filepath', '下载请求错误 传入参数错误', 'download wrong');
     }
   })()
     .then((r) => {
@@ -190,20 +216,23 @@ router.get('/download', (req, res, next) => {
 });
 
 /**
- * 查询指定openId的works内容
- * 传入参数 openId worksId
+ * 查询指定session的work内容
+ * 传入参数 session workId
  */
-router.post('/getworks', (req, res, next) => {
+router.post('/getwork', (req, res, next) => {
   (async () => {
-    let existingParam = req.body.openId && req.body.worksId;
-    if (req.body.worksId == 0 && req.body.openId) {
+    let existingParam = req.body.session && req.body.workId;
+    if (req.body.workId == 0 && req.body.openId) {
       existingParam = true;
     }
     if (existingParam) {
-      const user = await mongo.getUserByOpenidAndWorksid(req.body.openId, req.body.worksId);
+      const sessionKey = await redis3rdsession.redisGet(req.body.session).catch((e) => {
+        throw new HTTP3rdsessionError('3rdsession', '3rdsession错误或已过期', e);
+      });
+      const user = await mongo.getUserByOpenidAndWorkid(sessionKey['openid'], req.body.workId);
       return user;
     } else {
-      throw new HTTPParamError('openId,worksId', 'getworks请求错误 传入参数错误', 'getworks wrong');
+      throw new HTTPParamError('session,workId', 'getwork请求错误 传入参数错误', 'getwork wrong');
     }
   })()
     .then((r) => {
@@ -215,16 +244,19 @@ router.post('/getworks', (req, res, next) => {
 });
 
 /**
- * 查询指定openId的内容
- * 传入参数 openId
+ * 查询指定session的内容
+ * 传入参数 session
  */
-router.post('/getuserbyopenid', (req, res, next) => {
+router.post('/getuserbysession', (req, res, next) => {
   (async () => {
-    if (req.body.openId) {
-      const user = await mongo.getUserByOpenid(req.body.openId);
+    if (req.body.session) {
+      const sessionKey = await redis3rdsession.redisGet(req.body.session).catch((e) => {
+        throw new HTTP3rdsessionError('3rdsession', '3rdsession错误或已过期', e);
+      });
+      const user = await mongo.getUserByOpenid(sessionKey['openid']);
       return user;
     } else {
-      throw new HTTPParamError('openId', 'getuserbyopenid请求错误 传入参数错误', 'getuserbyopenid wrong');
+      throw new HTTPParamError('session', 'getuserbysession请求错误 传入参数错误', 'getuserbysession wrong');
     }
   })()
     .then((r) => {
@@ -245,7 +277,7 @@ router.post('/getuserbynickname', (req, res, next) => {
       const user = await mongo.getUserByNickname(req.body.nickName);
       return user;
     } else {
-      throw new HTTPParamError('nickName', 'getuserbynickname请求错误 传入参数错误', 'getuserbyopenid wrong');
+      throw new HTTPParamError('nickName', 'getuserbynickname请求错误 传入参数错误', 'getuserbynickName wrong');
     }
   })()
     .then((r) => {

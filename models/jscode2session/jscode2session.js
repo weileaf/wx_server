@@ -10,14 +10,14 @@ async function httpsRequest(appid, secret, code, next) {
 
   const url = 'https://api.weixin.qq.com/sns/jscode2session';
 
-  const result = await axios.get(url, { params: data })
+  const r = await axios.get(url, { params: data })
     .then((r) => {
       return r.data;
     })
     .catch((e) => {
       next(e);
     });
-  return result;
+  return JSON.stringify(r); // 转成json格式预备存入redis
 }
 
 module.exports = { httpsRequest };
