@@ -13,16 +13,18 @@
 - axios
 - bluebird
 
-根据微信小程序提供的登录时序 实现以下：
+根据微信小程序提供的登录时序 结合本实例情况 实现以下流程：
 
-1. 小程序通过wx.login()获取到code并发送POST请求 **jscode2session** ( **appid secret code** ) 到服务器
-2. 服务器接收到相应参数后发送GET请求( **appid secret code** )到微信服务器 返回 **openid session_key**
-3. 服务器收到返回内容后生成一个随机字符串 **3rdsession** 并以 **3rdsession** 为key 返回内容为value 存入redis 并返回给客户端 **3rdsession**
-4. 客户端将收到的 **3rdsession** 存入storage 且之后的每次请求都将 **3rdsession** 作为用户的唯一标识 作为参数传到服务器
+##### 新用户注册登录
+
+1. 客户端通过wx.login()获取到code并发送POST请求 **jscode2session** ( **appid secret code** ) 到服务端
+2. 服务端接收到相应参数后发送GET请求( **appid secret code** )到微信服务器 返回 **openid session_key**
+3. 服务端收到返回内容后生成一个随机字符串 **3rdsession** 并以 **3rdsession** 为key 返回内容为value 存入redis 并返回给客户端 **3rdsession**
+4. 客户端收到 **3rdsession** 后存入storage 并调用 **wx.getUserInfo** ( **withCredentials** 为 **true** ) 获得 **encryptedData, iv** 之后发送POST请求 **decrypt** ( **appId,session { 这里是3rdsession，服务端将根据3rdsession在redis中查到对应sessionKey } ,encryptedData,iv** ) 之后服务端进行解密并将解密后的数据存数据库
 
 ## 存在问题
 
-- 服务器生成的3rdsession可能与小程序自身的登录态有冲突 因为暂时还没搞清楚小程序的登录态机制
+- 结构较乱 日后将进行精简整理
 
 > ### 登录时序图
 > ![image](https://mp.weixin.qq.com/debug/wxadoc/dev/image/login.png?t=2017127)

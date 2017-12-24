@@ -32,7 +32,7 @@ router.post('/jscode2session', (req, res, next) => {
       if (data) {
         const sessionid = await generating3rdsession.generating3rdsession();
         const json_data = JSON.parse(data);
-        await redis3rdsession.redisSet(sessionid, data, json_data['expires_in']);
+        await redis3rdsession.redisSet(sessionid, data, json_data['expires_in'] * 1000);
         return sessionid;
       } else {
         throw new HTTPReqWXServerError('请求微信服务器时发生错误');
@@ -60,8 +60,9 @@ router.post('/decrypt', (req, res, next) => {
     if (existingParam) {
       // 得到appID sessionKey encryptedData iv，然后调用解密并返回解密的信息
       const sessionKey = await redis3rdsession.redisGet(req.body.session).catch((e) => {
-        throw new HTTP3rdsessionError('3rdsession', '3rdsession错误或已过期', e);
+        return new HTTP3rdsessionError('3rdsession错误或已过期', e);
       });
+      if (sessionKey.code === 4000003) return sessionKey;
       let after = await getDecryptions.getDecryption(
         req.body.appId,
         sessionKey['session_key'],
@@ -93,8 +94,9 @@ router.post('/create', (req, res, next) => {
     // 根据session查询workId 如果已经存在则workId++ 不存在则从1开始
     if (req.body.session) {
       const sessionKey = await redis3rdsession.redisGet(req.body.session).catch((e) => {
-        throw new HTTP3rdsessionError('3rdsession', '3rdsession错误或已过期', e);
+        return new HTTP3rdsessionError('3rdsession错误或已过期', e);
       });
+      if (sessionKey.code === 4000003) return sessionKey;
       const user = await mongo.getUserByOpenid(sessionKey['openid']);
       let workId = user.work.length;
       if (user.work.length) {
@@ -147,8 +149,9 @@ router.post('/sub', upload.single('file'), (req, res, next) => {
     }
     if (existingParam) {
       const sessionKey = await redis3rdsession.redisGet(req.body.session).catch((e) => {
-        throw new HTTP3rdsessionError('3rdsession', '3rdsession错误或已过期', e);
+        return new HTTP3rdsessionError('3rdsession错误或已过期', e);
       });
+      if (sessionKey.code === 4000003) return sessionKey;
       // 如果有上传的文件则整理存储文件 没有则正常存储文字
       if (req.file) {
         // 上传文件需要客户端在header内加入键firstanddelete 如果此键值为1 则表明为第一次上传 将删除对应目录下所有文件 防止重复 值为1时则正常上传
@@ -188,8 +191,9 @@ router.get('/download', (req, res, next) => {
     let existingParam = req.headers.session && req.headers.workid && req.headers.filepath;
     if (existingParam) {
       const sessionKey = await redis3rdsession.redisGet(req.headers.session).catch((e) => {
-        throw new HTTP3rdsessionError('3rdsession', '3rdsession错误或已过期', e);
+        return new HTTP3rdsessionError('3rdsession错误或已过期', e);
       });
+      if (sessionKey.code === 4000003) return sessionKey;
       // 先根据session workId查到文件的数组 如果有相应数据则返回文件
       const user = await mongo.getUserByOpenidAndWorkid(sessionKey['openid'], req.headers.workid);
       return user;
@@ -227,8 +231,9 @@ router.post('/getwork', (req, res, next) => {
     }
     if (existingParam) {
       const sessionKey = await redis3rdsession.redisGet(req.body.session).catch((e) => {
-        throw new HTTP3rdsessionError('3rdsession', '3rdsession错误或已过期', e);
+        return new HTTP3rdsessionError('3rdsession错误或已过期', e);
       });
+      if (sessionKey.code === 4000003) return sessionKey;
       const user = await mongo.getUserByOpenidAndWorkid(sessionKey['openid'], req.body.workId);
       return user;
     } else {
@@ -251,8 +256,9 @@ router.post('/getuserbysession', (req, res, next) => {
   (async () => {
     if (req.body.session) {
       const sessionKey = await redis3rdsession.redisGet(req.body.session).catch((e) => {
-        throw new HTTP3rdsessionError('3rdsession', '3rdsession错误或已过期', e);
+        return new HTTP3rdsessionError('3rdsession错误或已过期', e);
       });
+      if (sessionKey.code === 4000003) return sessionKey;
       const user = await mongo.getUserByOpenid(sessionKey['openid']);
       return user;
     } else {
@@ -260,7 +266,7 @@ router.post('/getuserbysession', (req, res, next) => {
     }
   })()
     .then((r) => {
-      res.send(r);
+      res.json(r);
     })
     .catch((e) => {
       next(e);

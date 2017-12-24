@@ -1,10 +1,16 @@
-const HTTPBaseError = require('./http_base_error');
+const ERROR_CODE = 4000003;
 
-const ERRPR_CODE = 4000003;
-
-class HTTP3rdsessionError extends HTTPBaseError {
-  constructor(desc) {
-    super(400, desc, ERRPR_CODE, `3rdsession wrong`);
+class HTTP3rdsessionError {
+  constructor(desc, msg) {
+    this.desc = desc;
+    this.msg = msg;
+    this.code = ERROR_CODE;
+    const json = {
+      desc: desc,
+      msg: msg,
+      code: ERROR_CODE,
+    };
+    return JSON.stringify(json);
   }
 }
 
