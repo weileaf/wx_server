@@ -59,7 +59,15 @@
 
 - ###### 传入参数 session
 
-##### 4. /sub
+##### 4. /delete
+
+- method: POST
+
+- 每次提交delete请求 则会将指定workId的数据删除
+
+- ###### 传入参数 session workId
+
+##### 5. /sub
 
 - method: POST
 
@@ -67,7 +75,7 @@
 
 - ###### 传入参数 session workId work
 
-##### 5. /download
+##### 6. /download
 
 - method: GET
 
@@ -75,7 +83,15 @@
 
 - ###### 传入参数 session workId filepath (header)
 
-##### 6. /getworks
+##### 7. /upshareimg
+
+- method: POST
+
+- 每次提交upshareimg请求 则会将用户传入的分享图片入库
+
+- ###### 传入参数 session workId file
+
+##### 8. /getworks
 
 - method: POST
 
@@ -83,15 +99,15 @@
 
 - ###### 传入参数 session workId
 
-##### 7. /getuserbysession
+##### 9. /getuserbysession
 
 - method: POST
 
-- 查询指定session的内容
+- 查询指定session的内容 用于下拉刷新 上拉加载更多
 
-- ###### 传入参数 session
+- ###### 传入参数 session pagesize pagenum
 
-7./getuserbynickname
+##### 10./getuserbynickname
 
 - method: POST
 
@@ -99,7 +115,7 @@
 
 - ###### 传入参数 nickName
 
-##### 8. /getallusers
+##### 11. /getallusers
 
 - method: POST
 

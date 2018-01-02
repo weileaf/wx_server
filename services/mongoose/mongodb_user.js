@@ -15,8 +15,18 @@ async function getUserByOpenidAndWorkid(id, workid) {
   return user;
 }
 
+async function getPagingInfo(id, pagesize, pagenum) {
+  const user = await User.getPagingInfo(id, pagesize, pagenum);
+  return user;
+}
+
 async function getUserByOpenidAndCreate(id, datas) {
   const user = await User.getOneByOpenidAndCreate(id, datas);
+  return user;
+}
+
+async function getOneByOpenidWorkidAndDelete(id, workid) {
+  const user = await User.getOneByOpenidWorkidAndDelete(id, workid);
   return user;
 }
 
@@ -35,8 +45,8 @@ async function getAllUsers() {
   return users;
 }
 
-async function getFiles(id, workid, originalname, path, type) {
-  const file = await User.getFiles(id, workid, originalname, path, type);
+async function getFiles(id, workid, originalname, path, type, classify) {
+  const file = await User.getFiles(id, workid, originalname, path, type, classify);
   return file;
 }
 
@@ -44,7 +54,9 @@ module.exports = {
   addNewUser,
   getUserByOpenid,
   getUserByOpenidAndWorkid,
+  getPagingInfo,
   getUserByOpenidAndCreate,
+  getOneByOpenidWorkidAndDelete,
   getUserByOpenidAndUpdate,
   getUserByNickname,
   getAllUsers,

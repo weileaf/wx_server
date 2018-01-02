@@ -7,6 +7,8 @@ const fs = require('fs');
 
 const logger = require('../../utils/loggers/logger');
 
+const util = require('../../utils/util');
+
 const { Schema } = mongoose;
 
 const UserSchema = new Schema({
@@ -14,15 +16,16 @@ const UserSchema = new Schema({
   nickName: { type: String, required: true },
   gender: { type: String, required: true },
   avatarUrl: { type: String, required: true },
-  language: { type: String, required: true },
-  city: { type: String, required: true },
-  province: { type: String, required: true },
-  country: { type: String, required: true },
-  watermark: { type: Object, required: true },
+  language: { type: String, required: false },
+  city: { type: String, required: false },
+  province: { type: String, required: false },
+  country: { type: String, required: false },
+  watermark: { type: Object, required: false },
 });
 
 const WorkSchema = new Schema({
   openId: { type: String, required: true, index: 1 },
+  nickName: { type: String, required: true },
   work: { type: Object, required: true },
 });
 
@@ -35,6 +38,7 @@ async function insert(user) {
   const created = await UserModel.create(user);
   const defaultWork = {
     'openId': user['openId'],
+    'nickName': user['nickName'],
     'work': [],
   };
   await WorkModel.create(defaultWork);
@@ -49,8 +53,28 @@ async function getOneByOpenid(id) {
 
 // 根据openId workid查询 返回用户指定workid的作品数据
 async function getOneByOpenidAndWorkid(id, workid) {
-  const user = await WorkModel.findOne({ openId: id });
-  return user.work[workid];
+  const user = await WorkModel.findOne({ openId: id, 'work.workId': workid });
+  const result = await util.getArrayContent(user.work, workid);
+  return result;
+}
+
+// 根据openId,pagenum查询 返回指定页码的内容
+async function getPagingInfo(id, pagesize, pagenum) {
+  const user = await WorkModel.findOne({ openId: id }).select('work');
+  user.work.reverse();
+  const pages = user.work;
+
+  if ((pagenum * pagesize + pagesize) > user.work.length) {
+    return {
+      work: pages.slice(pagenum * pagesize, user.work.length),
+      code: 202,
+    };
+  } else {
+    return {
+      work: pages.slice(pagenum * pagesize, pagenum * pagesize + pagesize),
+      code: 200,
+    };
+  }
 }
 
 // 根据openId查询并创建
@@ -59,22 +83,36 @@ async function getOneByOpenidAndCreate(id, datas) {
   return user;
 }
 
+async function getOneByOpenidWorkidAndDelete(id, workid) {
+  const user = await WorkModel.findOneAndUpdate({ openId: id }, { '$pull': { work: { workId: workid } } }, { new: true, });
+  return user;
+}
+
 // 根据openId查询并更新
 async function getOneByOpenidAndUpdate(id, workid, datas, key, first) {
   if (first) {
     // 第一次上传 先清除数据库文件内容防止重复
-    const user = await WorkModel.findOneAndUpdate({ openId: id }, { '$set': { [`work.${workid}.${key}`]: [] } }, { new: true, });
+    const user = await WorkModel.findOneAndUpdate({
+      openId: id,
+      'work.workId': workid,
+    }, { '$set': { [`work.$.${key}`]: [] } }, { new: true, });
     return user;
   } else if (key) {
     // 上传文件
-    const user = await WorkModel.findOneAndUpdate({ openId: id }, { '$push': { [`work.${workid}.${key}`]: datas } }, {
+    const user = await WorkModel.findOneAndUpdate({
+      openId: id,
+      'work.workId': workid,
+    }, { '$push': { [`work.$.${key}`]: datas } }, {
       new: true,
       upsert: true,
     });
     return user;
   } else {
     // 上传文字
-    const user = await WorkModel.findOneAndUpdate({ openId: id }, { '$set': { [`work.${workid}`]: datas } }, { new: true, });
+    const user = await WorkModel.findOneAndUpdate({
+      openId: id,
+      'work.workId': workid,
+    }, { '$set': { [`work.$`]: datas } }, { new: true, });
     return user;
   }
 }
@@ -94,7 +132,11 @@ async function list(params) {
 }
 
 // 获取用户上传的文件，分类、改名后将新/旧文件名存入数据库
-async function getFiles(id, workid, originalname, path, type) {
+async function getFiles(id, workid, originalname, path, type, classify) {
+
+  let fileClass = 'datas';
+  if (classify) fileClass = 'shares';
+
   const filePath = path;
   const fileType = type;
   let key = '';
@@ -112,8 +154,8 @@ async function getFiles(id, workid, originalname, path, type) {
       lastName = '.silk';
       key = 'tape';
       break;
-    case 'audio/silk':
-      lastName = '.silk';
+    case 'audio/mpeg':
+      lastName = '.mp3';
       key = 'tape';
       break;
     default:
@@ -122,7 +164,8 @@ async function getFiles(id, workid, originalname, path, type) {
       break;
   }
 
-  const fileName = `mongodb/db/${id}/${workid}/${Date.now()}${lastName}`;
+  let fileName = `mongodb/db/datas/${id}/${workid}/${new Date().valueOf()}${lastName}`;
+  if (fileClass === 'shares') fileName = `mongodb/db/shares/${id}/${workid}/${new Date().valueOf()}${lastName}`;
 
   /**
    * 递归判断是否存在目录 不存在则创建目录并改写相应文件名
@@ -130,42 +173,42 @@ async function getFiles(id, workid, originalname, path, type) {
    * 2.如果没有则判断是否有openId目录 有则判断是否有workid目录{有则改名并写入 无则创建workid目录并改名写入}
    * 3.没有则创建openId目录 创建成功后再workid目录并改名写入
    */
-  fs.access(`mongodb/db/${id}/${workid}`, (err) => {
+  fs.access(`mongodb/db/${fileClass}/${id}/${workid}`, (err) => {
     if (!err) {
       fs.rename(filePath, fileName, (err) => {
-        if (err) return new Error('文件写入失败');
+        if (err) logger.error(err, '文件写入失败');
       });
     } else {
-      fs.access(`mongodb/db/${id}`, (err) => {
+      fs.access(`mongodb/db/${fileClass}/${id}`, (err) => {
         if (!err) {
-          fs.access(`mongodb/db/${id}/${workid}`, (err) => {
+          fs.access(`mongodb/db/${fileClass}/${id}/${workid}`, (err) => {
             if (!err) {
               fs.rename(filePath, fileName, (err) => {
-                if (err) return new Error('文件写入失败');
+                if (err) logger.error(err, '文件写入失败');
               });
             } else {
-              fs.mkdir(`mongodb/db/${id}/${workid}`, (err) => {
+              fs.mkdir(`mongodb/db/${fileClass}/${id}/${workid}`, (err) => {
                 if (err) {
                   logger.error(err, "创建workid目录失败");
                 } else {
                   fs.rename(filePath, fileName, (err) => {
-                    if (err) return new Error('文件写入失败');
+                    if (err) logger.error(err, '文件写入失败');
                   });
                 }
               });
             }
           });
         } else {
-          fs.mkdir(`mongodb/db/${id}`, (err) => {
+          fs.mkdir(`mongodb/db/${fileClass}/${id}`, (err) => {
             if (err) {
               logger.error(err, "创建openid目录失败");
             } else {
-              fs.mkdir(`mongodb/db/${id}/${workid}`, (err) => {
+              fs.mkdir(`mongodb/db/${fileClass}/${id}/${workid}`, (err) => {
                 if (err) {
                   logger.error(err, "创建workid目录失败");
                 } else {
                   fs.rename(filePath, fileName, (err) => {
-                    if (err) return new Error('文件写入失败');
+                    if (err) logger.error(err, '文件写入失败');
                   });
                 }
               });
@@ -176,16 +219,25 @@ async function getFiles(id, workid, originalname, path, type) {
     }
   });
 
-  const datas = [originalname, fileName];
-  const newdata = await getOneByOpenidAndUpdate(id, workid, datas, key);
-  return newdata;
+  if (fileClass === 'shares') {
+    const datas = [originalname, fileName];
+    key = 'shareimg';
+    const newdata = await getOneByOpenidAndUpdate(id, workid, datas, key);
+    return newdata;
+  } else {
+    const datas = [originalname, fileName];
+    const newdata = await getOneByOpenidAndUpdate(id, workid, datas, key);
+    return newdata;
+  }
 }
 
 module.exports = {
   insert,
   getOneByOpenid,
   getOneByOpenidAndWorkid,
+  getPagingInfo,
   getOneByOpenidAndCreate,
+  getOneByOpenidWorkidAndDelete,
   getOneByOpenidAndUpdate,
   getOneByNickname,
   list,

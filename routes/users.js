@@ -15,6 +15,7 @@ const HTTPParamError = require('../errors/http_request_param_error');
 const HTTPReqWXServerError = require('../errors/requset_wxserver_error');
 const HTTP3rdsessionError = require('../errors/3rdsession_error');
 const logger = require('../utils/loggers/logger');
+const util = require('../utils/util');
 
 router.get('/', (req, res) => {
   res.send('what???');
@@ -98,35 +99,56 @@ router.post('/create', (req, res, next) => {
       });
       if (sessionKey.code === 4000003) return sessionKey;
       const user = await mongo.getUserByOpenid(sessionKey['openid']);
-      let workId = user.work.length;
-      if (user.work.length) {
-        workId = user.work.length++;
-        const datas = {
-          title: '',
-          main: '',
-          fontsize: 14,
-          color: '#353535',
-          image: [],
-          tape: [],
-          workId: workId,
-        };
-        const created = await mongo.getUserByOpenidAndCreate(sessionKey['openid'], datas);
-        return created;
-      } else {
-        const datas = {
-          title: '',
-          main: '',
-          fontsize: 14,
-          color: '#353535',
-          image: [],
-          tape: [],
-          workId: 0,
-        };
-        const created = await mongo.getUserByOpenidAndCreate(sessionKey['openid'], datas);
-        return created;
-      }
+      let workId = new Date().valueOf().toString();
+      const datas = {
+        workId: workId,
+        title: '',
+        main: '',
+        fontsize: 14,
+        color: '#353535',
+        shareImg: [],
+        image: [],
+        tape: [],
+      };
+      const created = await mongo.getUserByOpenidAndCreate(sessionKey['openid'], datas);
+      const result = await util.getArrayContent(created.work, workId);
+      return result;
     } else {
       throw new HTTPParamError('session', '创建请求错误 传入参数错误', 'create wrong');
+    }
+  })()
+    .then((r) => {
+      res.send(r);
+    })
+    .catch((e) => {
+      next(e);
+    });
+});
+
+/**
+ * 每次提交delete请求 则会将指定workId的数据删除
+ * 传入参数 session workId
+ */
+router.post('/delete', (req, res, next) => {
+  (async () => {
+    let existingParam = req.body.session && req.body.workId;
+    if (req.body.workId == 0 && req.body.session) {
+      existingParam = true;
+    }
+    if (existingParam) {
+      const sessionKey = await redis3rdsession.redisGet(req.body.session).catch((e) => {
+        return new HTTP3rdsessionError('3rdsession错误或已过期', e);
+      });
+      if (sessionKey.code === 4000003) return sessionKey;
+      // 先根据session workId查到文件的数组 如果有相应数据则删除
+      const dataFilesUrl = `mongodb/db/datas/${sessionKey['openid']}/${req.body.workId}`;
+      await files.deleteall(dataFilesUrl);
+      const shareFilesUrl = `mongodb/db/shares/${sessionKey['openid']}/${req.body.workId}`;
+      await files.deleteall(shareFilesUrl);
+      const user = await mongo.getOneByOpenidWorkidAndDelete(sessionKey['openid'], req.body.workId);
+      return user;
+    } else {
+      throw new HTTPParamError('session,workId', '删除请求错误 传入参数错误', 'delete wrong');
     }
   })()
     .then((r) => {
@@ -156,7 +178,7 @@ router.post('/sub', upload.single('file'), (req, res, next) => {
       if (req.file) {
         // 上传文件需要客户端在header内加入键firstanddelete 如果此键值为1 则表明为第一次上传 将删除对应目录下所有文件 防止重复 值为1时则正常上传
         if (req.headers.firstanddelete === '1') {
-          const filesUrl = `mongodb/db/${sessionKey['openid']}/${req.body.workId}`;
+          const filesUrl = `mongodb/db/datas/${sessionKey['openid']}/${req.body.workId}`;
           await files.deleteall(filesUrl);
           await mongo.getUserByOpenidAndUpdate(sessionKey['openid'], req.body.workId, req.body.work, 'image', true);
           await mongo.getUserByOpenidAndUpdate(sessionKey['openid'], req.body.workId, req.body.work, 'tape', true);
@@ -165,7 +187,7 @@ router.post('/sub', upload.single('file'), (req, res, next) => {
         return file;
       } else {
         // 只有文字 没有文件
-        const filesUrl = `mongodb/db/${sessionKey['openid']}/${req.body.workId}`;
+        const filesUrl = `mongodb/db/datas/${sessionKey['openid']}/${req.body.workId}`;
         await files.deleteall(filesUrl);
         const user = await mongo.getUserByOpenidAndUpdate(sessionKey['openid'], req.body.workId, req.body.work);
         return user;
@@ -220,13 +242,47 @@ router.get('/download', (req, res, next) => {
 });
 
 /**
+ * 每次提交upshareimg请求 则会将用户传入的分享图片入库
+ * 传入参数 session workId file
+ */
+router.post('/upshareimg', upload.single('file'), (req, res, next) => {
+  (async () => {
+    let existingParam = req.body.session && req.body.workId && req.file;
+    if (req.body.workId == 0 && req.body.session) {
+      existingParam = true;
+    }
+    if (existingParam) {
+      const sessionKey = await redis3rdsession.redisGet(req.body.session).catch((e) => {
+        return new HTTP3rdsessionError('3rdsession错误或已过期', e);
+      });
+      if (sessionKey.code === 4000003) return sessionKey;
+
+      const filesUrl = `mongodb/db/shares/${sessionKey['openid']}/${req.body.workId}`;
+      await files.deleteall(filesUrl, true);
+      await mongo.getUserByOpenidAndUpdate(sessionKey['openid'], req.body.workId, req.body.work, 'shareimg', true);
+
+      const file = await mongo.getFiles(sessionKey['openid'], req.body.workId, req.file.originalname, req.file.path, req.file.mimetype, true);
+      return file;
+    } else {
+      throw new HTTPParamError('session,workId,file', '提交请求错误 传入参数错误', 'upshareimg wrong');
+    }
+  })()
+    .then((r) => {
+      res.send(r);
+    })
+    .catch((e) => {
+      next(e);
+    });
+});
+
+/**
  * 查询指定session的work内容
  * 传入参数 session workId
  */
 router.post('/getwork', (req, res, next) => {
   (async () => {
     let existingParam = req.body.session && req.body.workId;
-    if (req.body.workId == 0 && req.body.openId) {
+    if (req.body.workId == 0 && req.body.session) {
       existingParam = true;
     }
     if (existingParam) {
@@ -249,8 +305,8 @@ router.post('/getwork', (req, res, next) => {
 });
 
 /**
- * 查询指定session的内容
- * 传入参数 session
+ * 查询指定session的内容 用于下拉刷新 上拉加载更多
+ * 传入参数 session pagesize pagenum
  */
 router.post('/getuserbysession', (req, res, next) => {
   (async () => {
@@ -259,14 +315,14 @@ router.post('/getuserbysession', (req, res, next) => {
         return new HTTP3rdsessionError('3rdsession错误或已过期', e);
       });
       if (sessionKey.code === 4000003) return sessionKey;
-      const user = await mongo.getUserByOpenid(sessionKey['openid']);
+      const user = await mongo.getPagingInfo(sessionKey['openid'], req.body.pagesize, req.body.pagenum);
       return user;
     } else {
       throw new HTTPParamError('session', 'getuserbysession请求错误 传入参数错误', 'getuserbysession wrong');
     }
   })()
     .then((r) => {
-      res.json(r);
+      res.status(r.code).send(r.work);
     })
     .catch((e) => {
       next(e);
