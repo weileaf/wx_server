@@ -26,6 +26,7 @@ const UserSchema = new Schema({
 const WorkSchema = new Schema({
   openId: { type: String, required: true, index: 1 },
   nickName: { type: String, required: true },
+  avatarUrl: { type: String, required: true },
   work: { type: Object, required: true },
 });
 
@@ -39,6 +40,7 @@ async function insert(user) {
   const defaultWork = {
     'openId': user['openId'],
     'nickName': user['nickName'],
+    'avatarUrl': user['avatarUrl'],
     'work': [],
   };
   await WorkModel.create(defaultWork);
@@ -54,7 +56,14 @@ async function getOneByOpenid(id) {
 // 根据openId workid查询 返回用户指定workid的作品数据
 async function getOneByOpenidAndWorkid(id, workid) {
   const user = await WorkModel.findOne({ openId: id, 'work.workId': workid });
-  const result = await util.getArrayContent(user.work, workid);
+  const works = await util.getArrayContent(user.work, workid);
+  const result = {
+    userInfo: {
+      nickName: user['nickName'],
+      avatarUrl: user['avatarUrl'],
+    },
+    ...works,
+  };
   return result;
 }
 
@@ -72,6 +81,25 @@ async function getPagingInfo(id, pagesize, pagenum) {
   } else {
     return {
       work: pages.slice(pagenum * pagesize, pagenum * pagesize + pagesize),
+      code: 200,
+    };
+  }
+}
+
+// 根据openId,pagenum查询 返回指定页码的内容
+async function getShareImg(id, pagesize, pagenum) {
+  const user = await WorkModel.findOne({ openId: id }).select('work');
+  user.work.reverse();
+  const result = await util.getArrayHasField(user.work, 'shareImg');
+
+  if ((pagenum * pagesize + pagesize) > result.length) {
+    return {
+      work: result.slice(pagenum * pagesize, result.length),
+      code: 202,
+    };
+  } else {
+    return {
+      work: result.slice(pagenum * pagesize, pagenum * pagesize + pagesize),
       code: 200,
     };
   }
@@ -221,7 +249,7 @@ async function getFiles(id, workid, originalname, path, type, classify) {
 
   if (fileClass === 'shares') {
     const datas = [originalname, fileName];
-    key = 'shareimg';
+    key = 'shareImg';
     const newdata = await getOneByOpenidAndUpdate(id, workid, datas, key);
     return newdata;
   } else {
@@ -236,6 +264,7 @@ module.exports = {
   getOneByOpenid,
   getOneByOpenidAndWorkid,
   getPagingInfo,
+  getShareImg,
   getOneByOpenidAndCreate,
   getOneByOpenidWorkidAndDelete,
   getOneByOpenidAndUpdate,

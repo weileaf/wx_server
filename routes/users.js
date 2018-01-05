@@ -92,7 +92,6 @@ router.post('/decrypt', (req, res, next) => {
  */
 router.post('/create', (req, res, next) => {
   (async () => {
-    // 根据session查询workId 如果已经存在则workId++ 不存在则从1开始
     if (req.body.session) {
       const sessionKey = await redis3rdsession.redisGet(req.body.session).catch((e) => {
         return new HTTP3rdsessionError('3rdsession错误或已过期', e);
@@ -183,7 +182,9 @@ router.post('/sub', upload.single('file'), (req, res, next) => {
           await mongo.getUserByOpenidAndUpdate(sessionKey['openid'], req.body.workId, req.body.work, 'image', true);
           await mongo.getUserByOpenidAndUpdate(sessionKey['openid'], req.body.workId, req.body.work, 'tape', true);
         }
-        const file = await mongo.getFiles(sessionKey['openid'], req.body.workId, req.file.originalname, req.file.path, req.file.mimetype);
+        const file = mongo.getFiles(sessionKey['openid'], req.body.workId, req.file.originalname, req.file.path, req.file.mimetype).then((r) => {
+          return r;
+        });
         return file;
       } else {
         // 只有文字 没有文件
@@ -259,9 +260,11 @@ router.post('/upshareimg', upload.single('file'), (req, res, next) => {
 
       const filesUrl = `mongodb/db/shares/${sessionKey['openid']}/${req.body.workId}`;
       await files.deleteall(filesUrl, true);
-      await mongo.getUserByOpenidAndUpdate(sessionKey['openid'], req.body.workId, req.body.work, 'shareimg', true);
+      await mongo.getUserByOpenidAndUpdate(sessionKey['openid'], req.body.workId, req.body.work, 'shareImg', true);
 
-      const file = await mongo.getFiles(sessionKey['openid'], req.body.workId, req.file.originalname, req.file.path, req.file.mimetype, true);
+      const file = await mongo.getFiles(sessionKey['openid'], req.body.workId, req.file.originalname, req.file.path, req.file.mimetype, true).then((r) => {
+        return r;
+      });
       return file;
     } else {
       throw new HTTPParamError('session,workId,file', '提交请求错误 传入参数错误', 'upshareimg wrong');
@@ -316,6 +319,31 @@ router.post('/getuserbysession', (req, res, next) => {
       });
       if (sessionKey.code === 4000003) return sessionKey;
       const user = await mongo.getPagingInfo(sessionKey['openid'], req.body.pagesize, req.body.pagenum);
+      return user;
+    } else {
+      throw new HTTPParamError('session', 'getuserbysession请求错误 传入参数错误', 'getuserbysession wrong');
+    }
+  })()
+    .then((r) => {
+      res.status(r.code).send(r.work);
+    })
+    .catch((e) => {
+      next(e);
+    });
+});
+
+/**
+ * 查询指定session的内容 返回其中带分享图片的数据 用于‘我的’页面
+ * 传入参数 session pagesize pagenum
+ */
+router.post('/getshareimg', (req, res, next) => {
+  (async () => {
+    if (req.body.session) {
+      const sessionKey = await redis3rdsession.redisGet(req.body.session).catch((e) => {
+        return new HTTP3rdsessionError('3rdsession错误或已过期', e);
+      });
+      if (sessionKey.code === 4000003) return sessionKey;
+      const user = await mongo.getShareImg(sessionKey['openid'], req.body.pagesize, req.body.pagenum);
       return user;
     } else {
       throw new HTTPParamError('session', 'getuserbysession请求错误 传入参数错误', 'getuserbysession wrong');

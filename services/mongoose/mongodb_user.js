@@ -20,6 +20,11 @@ async function getPagingInfo(id, pagesize, pagenum) {
   return user;
 }
 
+async function getShareImg(id, pagesize, pagenum) {
+  const user = await User.getShareImg(id, pagesize, pagenum);
+  return user;
+}
+
 async function getUserByOpenidAndCreate(id, datas) {
   const user = await User.getOneByOpenidAndCreate(id, datas);
   return user;
@@ -55,6 +60,7 @@ module.exports = {
   getUserByOpenid,
   getUserByOpenidAndWorkid,
   getPagingInfo,
+  getShareImg,
   getUserByOpenidAndCreate,
   getOneByOpenidWorkidAndDelete,
   getUserByOpenidAndUpdate,

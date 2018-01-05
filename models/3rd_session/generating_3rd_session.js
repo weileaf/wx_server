@@ -1,11 +1,15 @@
 const { exec } = require('child_process');
+const Promise = require('bluebird');
+const execAsync = Promise.promisify(exec);
 
 async function generating3rdsession() {
   const platform = process.platform;
   if (platform.indexOf('linux') === 0) {
-    await exec('head -n 80 /dev/urandom | tr -dc A-Za-z0-9 | head -c 168', (err, stdout, stderr) => {
-      return stdout;
-    });
+    const result = await execAsync('head -n 80 /dev/urandom | tr -dc A-Za-z0-9 | head -c 168')
+      .then((r) => {
+        return r;
+      });
+    return result;
   } else {
     // 本地测试用
     const key = await randomWord(168);

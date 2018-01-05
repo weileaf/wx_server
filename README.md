@@ -107,7 +107,15 @@
 
 - ###### 传入参数 session pagesize pagenum
 
-##### 10./getuserbynickname
+##### 10. /getshareimg
+
+- method: POST
+
+- 查询指定session的内容 返回其中带分享图片的数据 用于‘我的’页面
+
+- ###### 传入参数 session pagesize pagenum
+
+##### 11. /getuserbynickname
 
 - method: POST
 
@@ -115,7 +123,7 @@
 
 - ###### 传入参数 nickName
 
-##### 11. /getallusers
+##### 12. /getallusers
 
 - method: POST
 
