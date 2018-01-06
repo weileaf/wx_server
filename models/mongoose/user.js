@@ -100,9 +100,9 @@ async function getPagingInfo(id, pagesize, pagenum) {
 // 根据openId,pagenum查询 返回指定页码的内容
 async function getShareImg(id, pagesize, pagenum) {
   const user = await WorkModel.findOne({ openId: id }).select('work')
-    .then((res) => {
+    .then(async (res) => {
       res.work.reverse();
-      const result = util.getArrayHasField(res.work, 'shareImg');
+      const result = await util.getArrayHasField(res.work, 'shareImg');
 
       if ((pagenum * pagesize + pagesize) > result.length) {
         return {
