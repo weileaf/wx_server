@@ -94,8 +94,8 @@ server.on('error', onError);
 server.on('listening', onListening);
 
 const options = {
-  key: fs.readFileSync('./https/214330234480959.key'),
-  cert: fs.readFileSync('./https/214330234480959.pem'),
+  key: fs.readFileSync('../config/214330234480959.key'),
+  cert: fs.readFileSync('../config/214330234480959.pem'),
 };
 
 const httpsServer = https.createServer(options, app);
