@@ -69,40 +69,71 @@ async function getOneByOpenidAndWorkid(id, workid) {
 
 // 根据openId,pagenum查询 返回指定页码的内容
 async function getPagingInfo(id, pagesize, pagenum) {
-  const user = await WorkModel.findOne({ openId: id }).select('work');
-  user.work.reverse();
-  const pages = user.work;
+  const user = await WorkModel.findOne({ openId: id }).select('work')
+    .then((res) => {
+      res.work.reverse();
+      const pages = res.work;
 
-  if ((pagenum * pagesize + pagesize) > user.work.length) {
-    return {
-      work: pages.slice(pagenum * pagesize, user.work.length),
-      code: 202,
-    };
-  } else {
-    return {
-      work: pages.slice(pagenum * pagesize, pagenum * pagesize + pagesize),
-      code: 200,
-    };
-  }
+      if ((pagenum * pagesize + pagesize) > res.work.length) {
+        return {
+          work: pages.slice(pagenum * pagesize, res.work.length),
+          code: 202,
+        };
+      } else {
+        return {
+          work: pages.slice(pagenum * pagesize, pagenum * pagesize + pagesize),
+          code: 200,
+        };
+      }
+    })
+    .catch((err) => {
+      const errInfo = {
+        code: 404,
+        errcode: 4040001,
+        work: '还没有创建用户',
+      };
+      return errInfo;
+    });
+  return user;
 }
 
 // 根据openId,pagenum查询 返回指定页码的内容
 async function getShareImg(id, pagesize, pagenum) {
-  const user = await WorkModel.findOne({ openId: id }).select('work');
-  user.work.reverse();
-  const result = await util.getArrayHasField(user.work, 'shareImg');
+  const user = await WorkModel.findOne({ openId: id }).select('work')
+    .then((res) => {
+      const r = (async () => {
+        res.work.reverse();
+        const result = await util.getArrayHasField(res.work, 'shareImg');
 
-  if ((pagenum * pagesize + pagesize) > result.length) {
-    return {
-      work: result.slice(pagenum * pagesize, result.length),
-      code: 202,
-    };
-  } else {
-    return {
-      work: result.slice(pagenum * pagesize, pagenum * pagesize + pagesize),
-      code: 200,
-    };
-  }
+        if ((pagenum * pagesize + pagesize) > result.length) {
+          return {
+            work: result.slice(pagenum * pagesize, result.length),
+            code: 202,
+          };
+        } else {
+          return {
+            work: result.slice(pagenum * pagesize, pagenum * pagesize + pagesize),
+            code: 200,
+          };
+        }
+      })()
+        .then((r) => {
+          return r;
+        })
+        .catch((e) => {
+          console.log(e);
+        });
+      return r;
+    })
+    .catch((err) => {
+      const errInfo = {
+        code: 404,
+        errcode: 4040001,
+        work: '还没有创建用户',
+      };
+      return errInfo;
+    });
+  return user;
 }
 
 // 根据openId查询并创建
