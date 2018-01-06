@@ -101,29 +101,20 @@ async function getPagingInfo(id, pagesize, pagenum) {
 async function getShareImg(id, pagesize, pagenum) {
   const user = await WorkModel.findOne({ openId: id }).select('work')
     .then((res) => {
-      const r = (async () => {
-        res.work.reverse();
-        const result = await util.getArrayHasField(res.work, 'shareImg');
+      res.work.reverse();
+      const result = util.getArrayHasField(res.work, 'shareImg');
 
-        if ((pagenum * pagesize + pagesize) > result.length) {
-          return {
-            work: result.slice(pagenum * pagesize, result.length),
-            code: 202,
-          };
-        } else {
-          return {
-            work: result.slice(pagenum * pagesize, pagenum * pagesize + pagesize),
-            code: 200,
-          };
-        }
-      })()
-        .then((r) => {
-          return r;
-        })
-        .catch((e) => {
-          console.log(e);
-        });
-      return r;
+      if ((pagenum * pagesize + pagesize) > result.length) {
+        return {
+          work: result.slice(pagenum * pagesize, result.length),
+          code: 202,
+        };
+      } else {
+        return {
+          work: result.slice(pagenum * pagesize, pagenum * pagesize + pagesize),
+          code: 200,
+        };
+      }
     })
     .catch((err) => {
       const errInfo = {

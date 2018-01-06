@@ -325,7 +325,7 @@ router.post('/getuserbysession', (req, res, next) => {
     }
   })()
     .then((r) => {
-      res.status(r.code).send(r.work);
+      res.status(r.code).send(r);
     })
     .catch((e) => {
       next(e);
@@ -350,7 +350,7 @@ router.post('/getshareimg', (req, res, next) => {
     }
   })()
     .then((r) => {
-      res.status(r.code).send(r.work);
+      res.status(r.code).send(r);
     })
     .catch((e) => {
       next(e);
