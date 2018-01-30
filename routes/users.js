@@ -64,15 +64,15 @@ router.post('/decrypt', (req, res, next) => {
         return new HTTP3rdsessionError('3rdsession错误或已过期', e);
       });
       if (sessionKey.code === 4000003) return sessionKey;
+      // 判断是否已经存在用户 不存在则将解密后的用户信息after存入数据库
+      const user = await mongo.getUserByOpenid(sessionKey['openid']);
+      if (user) return user;
       let after = await getDecryptions.getDecryption(
         req.body.appId,
         sessionKey['session_key'],
         req.body.encryptedData,
         req.body.iv,
       );
-      // 判断是否已经存在用户 不存在则将解密后的用户信息after存入数据库
-      const user = await mongo.getUserByOpenid(sessionKey['openid']);
-      if (user) return user;
       return mongo.addNewUser(after);
     } else {
       throw new HTTPParamError('appID,session,encryptedData,iv', '解密请求错误 传入参数错误', 'decrypt wrong');
